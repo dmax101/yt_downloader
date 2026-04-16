@@ -1,0 +1,15 @@
+{
+  "name": "yt-downloader-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "nx run-many --projects=backend,frontend --target=dev --parallel",
+    "build": "nx run-many --projects=backend,frontend --target=build",
+    "serve:backend": "nx run backend:serve",
+    "serve:frontend": "nx run frontend:serve"
+  },
+  "devDependencies": {
+    "nx": "^20.8.2"
+  }
+}

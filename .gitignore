@@ -1,0 +1,12 @@
+node_modules/
+.env
+*.log
+dist/
+coverage/
+.DS_Store
+apps/backend/node_modules/
+apps/frontend/node_modules/
+apps/frontend/dist/
+.nx/
+*.mp3
+*.mp4
