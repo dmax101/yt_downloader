@@ -111,14 +111,27 @@ function withTimeout(promise, timeoutMs, errorMessage) {
 
 async function resolveMetadataWithFallback(jobId, url, kind) {
   try {
-    const metadata = await withTimeout(
-      ytDlp.getVideoInfo(url),
+    const stdout = await withTimeout(
+      ytDlp.execPromise([
+        url,
+        '--no-playlist',
+        '--skip-download',
+        '--print',
+        '%(title)s',
+        '--print',
+        '%(duration)s',
+      ]),
       15000,
       'Timeout ao ler metadados'
     );
 
-    const rawTitle = metadata?.title || `${kind}-${jobId}`;
-    const durationSeconds = Number(metadata?.duration) || 0;
+    const lines = String(stdout)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const rawTitle = lines[0] || `${kind}-${jobId}`;
+    const durationSeconds = Number.parseFloat(lines[1]) || 0;
 
     return {
       title: sanitizeFileName(rawTitle),

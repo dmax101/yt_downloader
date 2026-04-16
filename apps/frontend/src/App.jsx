@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const API_ROUTES = {
   videoJob: '/api/downloads/video-job',
@@ -81,8 +81,28 @@ export default function App() {
   const [loading, setLoading] = useState(null);
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState('Aguardando inicio');
+  const [showProgress, setShowProgress] = useState(false);
+  const [conversionSeconds, setConversionSeconds] = useState(0);
+  const [isConverting, setIsConverting] = useState(false);
 
   const isValid = useMemo(() => looksLikeYouTubeUrl(url.trim()), [url]);
+
+  useEffect(() => {
+    if (!isConverting) return undefined;
+
+    const intervalId = setInterval(() => {
+      setConversionSeconds((current) => current + 1);
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [isConverting]);
+
+  function formatClock(totalSeconds) {
+    const safe = Math.max(0, Math.floor(totalSeconds));
+    const minutes = String(Math.floor(safe / 60)).padStart(2, '0');
+    const seconds = String(safe % 60).padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  }
 
   async function handleDownload(kind) {
     if (!isValid) {
@@ -94,8 +114,11 @@ export default function App() {
 
     try {
       setLoading(kind);
+      setShowProgress(true);
       setProgress(0);
       setProgressLabel('Criando job');
+      setConversionSeconds(0);
+      setIsConverting(false);
       setStatus({ type: 'pending', message: `Processando ${target}...` });
 
       const { jobId } = await createJob(kind, url.trim());
@@ -105,6 +128,7 @@ export default function App() {
         const job = await fetchJobStatus(jobId);
         setProgress(job.progress || 0);
         setProgressLabel(job.message || 'Processando...');
+        setIsConverting(kind === 'mp3' && job.phase === 'converting');
 
         if (job.status === 'error') {
           throw new Error(job.error || 'Falha no processamento.');
@@ -121,8 +145,10 @@ export default function App() {
       await triggerFileDownload(jobId, jobResult.fileName || (kind === 'video' ? 'youtube-video.mp4' : 'youtube-audio.mp3'));
       setProgress(100);
       setProgressLabel('Download concluido');
+      setIsConverting(false);
       setStatus({ type: 'success', message: `${target} baixado com sucesso.` });
     } catch (error) {
+      setIsConverting(false);
       setStatus({ type: 'error', message: error.message || 'Nao foi possivel concluir a operacao.' });
     } finally {
       setLoading(null);
@@ -170,16 +196,21 @@ export default function App() {
           </button>
         </div>
 
-        <div className="progress-wrap">
-          <div className="progress-meta">
-            <span>Progresso</span>
-            <span>{Math.round(progress)}%</span>
+        {showProgress && (
+          <div className="progress-wrap">
+            <div className="progress-meta">
+              <span>Progresso</span>
+              <span>{Math.round(progress)}%</span>
+            </div>
+            <div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+              <div className="progress-fill" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+            </div>
+            <p className="progress-label">{progressLabel}</p>
+            {loading === 'mp3' && (
+              <p className="progress-label">Tempo de conversao: {formatClock(conversionSeconds)}</p>
+            )}
           </div>
-          <div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
-            <div className="progress-fill" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
-          </div>
-          <p className="progress-label">{progressLabel}</p>
-        </div>
+        )}
 
         <div className={`status status-${status.type}`}>{status.message}</div>
       </section>
