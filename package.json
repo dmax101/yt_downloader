@@ -8,7 +8,8 @@
     "build": "nx run-many --projects=backend,frontend --target=build",
     "serve:backend": "nx run backend:serve",
     "serve:frontend": "nx run frontend:serve",
-    "dev:desktop": "nx run desktop:dev",
+    "dev:desktop": "nx run-many --projects=backend,desktop --target=dev --parallel",
+    "dev:desktop:app": "nx run desktop:dev",
     "serve:desktop": "nx run desktop:serve",
     "build:desktop": "nx run desktop:build"
   },

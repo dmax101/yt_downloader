@@ -40,17 +40,16 @@ npm run dev
 
 ### Desktop (backend + tauri)
 
-Em um terminal, rode backend:
-
-```bash
-npm run serve:backend
-```
-
-Em outro terminal, rode desktop:
+Rode em um unico comando:
 
 ```bash
 npm run dev:desktop
 ```
+
+Esse script sobe em paralelo:
+
+- Backend em `http://localhost:3001`
+- App desktop Tauri (com Vite em `http://localhost:1420` internamente)
 
 O desktop usa proxy `/api` para o backend em `http://localhost:3001` durante dev.
 

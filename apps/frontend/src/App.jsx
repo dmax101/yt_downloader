@@ -57,6 +57,34 @@ function downloadBlob(blob, fileName) {
   window.URL.revokeObjectURL(blobUrl);
 }
 
+async function saveBlobWithPrompt(blob, fileName) {
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fileName,
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return {
+        mode: 'picker',
+        name: handle.name || fileName,
+      };
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error('Salvamento cancelado pelo usuario.');
+      }
+      throw new Error('Nao foi possivel salvar no local selecionado.');
+    }
+  }
+
+  downloadBlob(blob, fileName);
+  return {
+    mode: 'download-default',
+    name: fileName,
+  };
+}
+
 async function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -111,7 +139,7 @@ async function downloadBackendJobFile(jobId, fallbackName) {
   const match = contentDisposition.match(/filename="?([^";]+)"?/i);
   const fileName = sanitizeFileName(match?.[1] || fallbackName || 'download.bin');
   const blob = await response.blob();
-  downloadBlob(blob, fileName);
+  return saveBlobWithPrompt(blob, fileName);
 }
 
 async function fetchBlobWithProgress(url, onProgress) {
@@ -271,7 +299,7 @@ export default function App() {
       await wait(1000);
     }
 
-    await downloadBackendJobFile(
+    const saveResult = await downloadBackendJobFile(
       jobId,
       latestJob?.fileName || (kind === 'video' ? 'youtube-video.mp4' : 'youtube-audio.mp3')
     );
@@ -279,7 +307,14 @@ export default function App() {
     setIsConverting(false);
     setProgress(100);
     setProgressLabel('Download concluido');
-    setStatus({ type: 'success', message: `${targetLabel} baixado com sucesso.` });
+    if (saveResult.mode === 'picker') {
+      setStatus({ type: 'success', message: `${targetLabel} salvo como ${saveResult.name}.` });
+    } else {
+      setStatus({
+        type: 'success',
+        message: `${targetLabel} baixado. Arquivo enviado para a pasta padrao de Downloads do navegador/sistema.`,
+      });
+    }
   }
 
   async function handleVideoDownload() {
@@ -306,11 +341,18 @@ export default function App() {
         const ext = input.ext || 'mp4';
         const fileName = `${sanitizeFileName(input.baseName) || 'video'}.${ext}`;
 
-        downloadBlob(input.originalBlob, fileName);
+        const saveResult = await saveBlobWithPrompt(input.originalBlob, fileName);
 
         setProgress(100);
         setProgressLabel('Download concluido');
-        setStatus({ type: 'success', message: `Video salvo como ${fileName}.` });
+        if (saveResult.mode === 'picker') {
+          setStatus({ type: 'success', message: `Video salvo como ${saveResult.name}.` });
+        } else {
+          setStatus({
+            type: 'success',
+            message: 'Video baixado. Arquivo enviado para a pasta padrao de Downloads do navegador/sistema.',
+          });
+        }
       }
     } catch (error) {
       setStatus({ type: 'error', message: error.message || 'Falha ao baixar video.' });
@@ -369,11 +411,18 @@ export default function App() {
         const outData = await ffmpeg.readFile(outputName);
         const mp3Blob = new Blob([outData.buffer], { type: 'audio/mpeg' });
         const fileName = `${safeBase}.mp3`;
-        downloadBlob(mp3Blob, fileName);
+        const saveResult = await saveBlobWithPrompt(mp3Blob, fileName);
 
         setProgress(100);
         setProgressLabel('Conversao concluida');
-        setStatus({ type: 'success', message: `MP3 salvo como ${fileName}.` });
+        if (saveResult.mode === 'picker') {
+          setStatus({ type: 'success', message: `MP3 salvo como ${saveResult.name}.` });
+        } else {
+          setStatus({
+            type: 'success',
+            message: 'MP3 baixado. Arquivo enviado para a pasta padrao de Downloads do navegador/sistema.',
+          });
+        }
 
         try {
           await ffmpeg.deleteFile(inputName);
