@@ -1,73 +1,81 @@
 # YouTube Downloader (MP4 e MP3)
 
-Aplicacao com processamento local no navegador (WASM) e versao desktop (Tauri):
+Aplicacao monorepo com foco em fluxo YouTube:
 
-- Frontend React + Vite
-- Conversao com `ffmpeg.wasm` no cliente
-- Desktop com Tauri (cliente local)
-- Monorepo com Nx
+- YouTube URL -> backend (yt-dlp + ffmpeg) -> MP4/MP3 com progresso real
+- Frontend web em React + Vite
+- Desktop em Tauri + React
+- Fallback local/WASM para arquivo local ou URL direta de midia
 
 ## Requisitos
 
 - Node.js 18+
 - npm
-- Rust (para build/dev da versao Tauri)
+- Rust (somente para dev/build da versao desktop Tauri)
 
 ## Estrutura
 
-- `apps/backend/` API para baixar video MP4 e converter para MP3
+- `apps/backend/` API para jobs de download/conversao
 - `apps/frontend/` interface web
 - `apps/desktop/` app desktop Tauri com UI React
 
-## Como rodar
+## Instalar dependencias
 
-### 1. Instalar dependencias
+No diretorio raiz:
 
 ```bash
-cd apps/backend
-npm install
-cd ../frontend
-npm install
-cd ../..
 npm install
 ```
 
-### 2. Iniciar frontend
+## Rodar em desenvolvimento
+
+### Web (backend + frontend)
 
 ```bash
 npm run dev
 ```
 
-Frontend em `http://localhost:5173`.
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:3001`
 
-### 3. Iniciar versao desktop (Tauri)
+### Desktop (backend + tauri)
+
+Em um terminal, rode backend:
 
 ```bash
-cd apps/desktop
-npm install
-cd ../..
+npm run serve:backend
+```
+
+Em outro terminal, rode desktop:
+
+```bash
 npm run dev:desktop
 ```
 
-Ou diretamente com Nx:
+O desktop usa proxy `/api` para o backend em `http://localhost:3001` durante dev.
 
-```bash
-nx run desktop:dev
-```
+## Endpoints principais
+
+- `POST /api/downloads/video-job` cria job de MP4
+- `POST /api/downloads/mp3-job` cria job de MP3
+- `GET /api/downloads/jobs/:jobId` consulta progresso/estado
+- `GET /api/downloads/file/:jobId` baixa arquivo final
 
 ## Uso
 
-1. Abra o frontend no navegador.
-2. Informe uma URL direta de arquivo de midia **ou** selecione um arquivo local.
-3. Clique em **Download do video** para salvar o arquivo original ou **Converter para MP3** para converter localmente.
-4. Acompanhe a barra de progresso e a mensagem de etapa (download, conversao, finalizacao).
-5. O download inicia automaticamente quando o job atingir 100%.
+1. Cole uma URL do YouTube e escolha:
+2. **Download do video** para MP4
+3. **Converter para MP3** para audio
+4. Acompanhe a barra de progresso (fila, download, conversao, conclusao)
+5. O arquivo e baixado automaticamente ao concluir
+
+Fallback local:
+
+- Arquivo local ou URL direta de midia nao-YouTube continuam funcionando com WASM no cliente.
 
 ## Observacoes
 
-- O processamento e a conversao ocorrem localmente no navegador via WebAssembly.
-- Na versao Tauri, o processamento continua local na maquina do cliente (sem backend para converter).
-- No primeiro uso da conversao, o carregamento do core WASM pode demorar um pouco.
-- YouTube direto no navegador e limitado por CORS/assinatura da plataforma.
-- Mudancas no YouTube podem afetar temporariamente downloads/conversao.
-- Use este projeto apenas respeitando direitos autorais e termos da plataforma.
+- Fluxo YouTube depende do backend estar ativo.
+- Jobs ficam em memoria no backend (se reiniciar servidor, estado dos jobs e perdido).
+- Mudancas no YouTube podem impactar temporariamente o processamento.
+- Use apenas respeitando direitos autorais e termos da plataforma.

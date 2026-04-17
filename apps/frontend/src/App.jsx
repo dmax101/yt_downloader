@@ -4,6 +4,12 @@ import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
 const CORE_VERSION = '0.12.10';
 const CORE_BASE = `https://unpkg.com/@ffmpeg/core@${CORE_VERSION}/dist/umd`;
+const API_ROUTES = {
+  videoJob: '/api/downloads/video-job',
+  mp3Job: '/api/downloads/mp3-job',
+  jobStatus: '/api/downloads/jobs',
+  file: '/api/downloads/file',
+};
 
 function isYouTubeUrl(value) {
   return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/i.test(value);
@@ -49,6 +55,63 @@ function downloadBlob(blob, fileName) {
   anchor.click();
   anchor.remove();
   window.URL.revokeObjectURL(blobUrl);
+}
+
+async function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readErrorFromResponse(response, fallbackMessage) {
+  try {
+    const data = await response.json();
+    if (data?.error) return data.error;
+    return fallbackMessage;
+  } catch {
+    return fallbackMessage;
+  }
+}
+
+async function createBackendJob(kind, youtubeUrl) {
+  const endpoint = kind === 'video' ? API_ROUTES.videoJob : API_ROUTES.mp3Job;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url: youtubeUrl }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorFromResponse(response, 'Falha ao iniciar processamento no backend.'));
+  }
+
+  const data = await response.json();
+  if (!data?.jobId) {
+    throw new Error('Resposta invalida do backend ao criar job.');
+  }
+
+  return data;
+}
+
+async function fetchBackendJobStatus(jobId) {
+  const response = await fetch(`${API_ROUTES.jobStatus}/${jobId}`);
+  if (!response.ok) {
+    throw new Error(await readErrorFromResponse(response, 'Nao foi possivel consultar o status do job.'));
+  }
+  return response.json();
+}
+
+async function downloadBackendJobFile(jobId, fallbackName) {
+  const response = await fetch(`${API_ROUTES.file}/${jobId}`);
+  if (!response.ok) {
+    throw new Error(await readErrorFromResponse(response, 'Falha ao baixar arquivo gerado.'));
+  }
+
+  const contentDisposition = response.headers.get('content-disposition') || '';
+  const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+  const fileName = sanitizeFileName(match?.[1] || fallbackName || 'download.bin');
+  const blob = await response.blob();
+  downloadBlob(blob, fileName);
 }
 
 async function fetchBlobWithProgress(url, onProgress) {
@@ -174,6 +237,51 @@ export default function App() {
     return { baseName: stripExtension(baseName), ext, data, originalBlob: blob };
   }
 
+  async function handleYouTubeThroughBackend(kind, youtubeUrl) {
+    setShowProgress(true);
+    setProgress(0);
+    setProgressLabel('Criando job no backend');
+    setConversionSeconds(0);
+    setIsConverting(false);
+
+    const targetLabel = kind === 'video' ? 'video MP4' : 'audio MP3';
+    setStatus({ type: 'pending', message: `Processando ${targetLabel} no backend...` });
+
+    const { jobId } = await createBackendJob(kind, youtubeUrl);
+
+    let done = false;
+    let latestJob = null;
+    while (!done) {
+      const job = await fetchBackendJobStatus(jobId);
+      latestJob = job;
+
+      setProgress(Math.max(0, Math.min(100, Math.round(job.progress || 0))));
+      setProgressLabel(job.message || 'Processando...');
+      setIsConverting(kind === 'mp3' && job.phase === 'converting');
+
+      if (job.status === 'error') {
+        throw new Error(job.error || 'Falha no processamento do backend.');
+      }
+
+      if (job.status === 'completed') {
+        done = true;
+        break;
+      }
+
+      await wait(1000);
+    }
+
+    await downloadBackendJobFile(
+      jobId,
+      latestJob?.fileName || (kind === 'video' ? 'youtube-video.mp4' : 'youtube-audio.mp3')
+    );
+
+    setIsConverting(false);
+    setProgress(100);
+    setProgressLabel('Download concluido');
+    setStatus({ type: 'success', message: `${targetLabel} baixado com sucesso.` });
+  }
+
   async function handleVideoDownload() {
     if (!hasSource) {
       setStatus({
@@ -185,20 +293,25 @@ export default function App() {
 
     try {
       setLoading('video');
-      setShowProgress(true);
-      setProgress(0);
-      setProgressLabel('Preparando download local');
-      setStatus({ type: 'pending', message: 'Processando video localmente...' });
+      const trimmed = url.trim();
+      if (isYouTubeUrl(trimmed)) {
+        await handleYouTubeThroughBackend('video', trimmed);
+      } else {
+        setShowProgress(true);
+        setProgress(0);
+        setProgressLabel('Preparando download local');
+        setStatus({ type: 'pending', message: 'Processando video localmente...' });
 
-      const input = await resolveInput();
-      const ext = input.ext || 'mp4';
-      const fileName = `${sanitizeFileName(input.baseName) || 'video'}.${ext}`;
+        const input = await resolveInput();
+        const ext = input.ext || 'mp4';
+        const fileName = `${sanitizeFileName(input.baseName) || 'video'}.${ext}`;
 
-      downloadBlob(input.originalBlob, fileName);
+        downloadBlob(input.originalBlob, fileName);
 
-      setProgress(100);
-      setProgressLabel('Download concluido');
-      setStatus({ type: 'success', message: `Video salvo como ${fileName}.` });
+        setProgress(100);
+        setProgressLabel('Download concluido');
+        setStatus({ type: 'success', message: `Video salvo como ${fileName}.` });
+      }
     } catch (error) {
       setStatus({ type: 'error', message: error.message || 'Falha ao baixar video.' });
     } finally {
@@ -217,52 +330,57 @@ export default function App() {
 
     try {
       setLoading('mp3');
-      setShowProgress(true);
-      setProgress(0);
-      setProgressLabel('Preparando conversao');
-      setConversionSeconds(0);
-      setIsConverting(false);
-      setStatus({ type: 'pending', message: 'Convertendo para MP3 no seu navegador...' });
+      const trimmed = url.trim();
+      if (isYouTubeUrl(trimmed)) {
+        await handleYouTubeThroughBackend('mp3', trimmed);
+      } else {
+        setShowProgress(true);
+        setProgress(0);
+        setProgressLabel('Preparando conversao');
+        setConversionSeconds(0);
+        setIsConverting(false);
+        setStatus({ type: 'pending', message: 'Convertendo para MP3 no seu navegador...' });
 
-      const input = await resolveInput();
-      const ffmpeg = await ensureFfmpegLoaded();
+        const input = await resolveInput();
+        const ffmpeg = await ensureFfmpegLoaded();
 
-      const safeBase = sanitizeFileName(input.baseName) || 'audio';
-      const inputName = `input.${input.ext || 'mp4'}`;
-      const outputName = 'output.mp3';
+        const safeBase = sanitizeFileName(input.baseName) || 'audio';
+        const inputName = `input.${input.ext || 'mp4'}`;
+        const outputName = 'output.mp3';
 
-      setProgress(20);
-      setProgressLabel('Escrevendo arquivo de entrada');
-      await ffmpeg.writeFile(inputName, input.data);
+        setProgress(20);
+        setProgressLabel('Escrevendo arquivo de entrada');
+        await ffmpeg.writeFile(inputName, input.data);
 
-      setIsConverting(true);
-      setProgressLabel('Convertendo para MP3');
-      await ffmpeg.exec([
-        '-i',
-        inputName,
-        '-vn',
-        '-acodec',
-        'libmp3lame',
-        '-b:a',
-        '192k',
-        outputName,
-      ]);
-      setIsConverting(false);
+        setIsConverting(true);
+        setProgressLabel('Convertendo para MP3');
+        await ffmpeg.exec([
+          '-i',
+          inputName,
+          '-vn',
+          '-acodec',
+          'libmp3lame',
+          '-b:a',
+          '192k',
+          outputName,
+        ]);
+        setIsConverting(false);
 
-      const outData = await ffmpeg.readFile(outputName);
-      const mp3Blob = new Blob([outData.buffer], { type: 'audio/mpeg' });
-      const fileName = `${safeBase}.mp3`;
-      downloadBlob(mp3Blob, fileName);
+        const outData = await ffmpeg.readFile(outputName);
+        const mp3Blob = new Blob([outData.buffer], { type: 'audio/mpeg' });
+        const fileName = `${safeBase}.mp3`;
+        downloadBlob(mp3Blob, fileName);
 
-      setProgress(100);
-      setProgressLabel('Conversao concluida');
-      setStatus({ type: 'success', message: `MP3 salvo como ${fileName}.` });
+        setProgress(100);
+        setProgressLabel('Conversao concluida');
+        setStatus({ type: 'success', message: `MP3 salvo como ${fileName}.` });
 
-      try {
-        await ffmpeg.deleteFile(inputName);
-        await ffmpeg.deleteFile(outputName);
-      } catch {
-        // limpeza best effort
+        try {
+          await ffmpeg.deleteFile(inputName);
+          await ffmpeg.deleteFile(outputName);
+        } catch {
+          // limpeza best effort
+        }
       }
     } catch (error) {
       setIsConverting(false);
@@ -278,25 +396,25 @@ export default function App() {
       <div className="bg-shape bg-shape-b" />
 
       <section className="card">
-        <p className="eyebrow">WASM Local Tool</p>
-        <h1>Processamento local na maquina do cliente</h1>
-        <p className="subtitle">Conversao e processamento feitos no navegador com WebAssembly.</p>
+        <p className="eyebrow">YouTube First</p>
+        <h1>Baixe YouTube em MP4 ou converta para MP3</h1>
+        <p className="subtitle">Links do YouTube usam backend com progresso real; local/WASM continua disponivel.</p>
 
         <label className="label" htmlFor="url-input">
-          URL direta de midia (nao YouTube)
+          URL do YouTube (recomendado) ou URL direta de midia
         </label>
         <input
           id="url-input"
           className="input"
           type="url"
-          placeholder="https://dominio.com/arquivo.mp4"
+          placeholder="https://www.youtube.com/watch?v=..."
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           disabled={loading !== null}
         />
 
         <label className="label" htmlFor="file-input" style={{ marginTop: 12 }}>
-          Ou selecione um arquivo local
+          Opcional: arquivo local (fallback WASM)
         </label>
         <input
           id="file-input"
