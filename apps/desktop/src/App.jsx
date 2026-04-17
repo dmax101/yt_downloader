@@ -92,7 +92,7 @@ export default function App() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [status, setStatus] = useState({
     type: 'idle',
-    message: 'Processamento local (WASM). Selecione arquivo local ou URL direta.',
+    message: 'Desktop local (Tauri + WASM). Selecione arquivo local ou URL direta.',
   });
   const [loading, setLoading] = useState(null);
   const [progress, setProgress] = useState(0);
@@ -278,8 +278,8 @@ export default function App() {
       <div className="bg-shape bg-shape-b" />
 
       <section className="card">
-        <p className="eyebrow">WASM Local Tool</p>
-        <h1>Processamento local na maquina do cliente</h1>
+        <p className="eyebrow">Desktop Local Tool</p>
+        <h1>Processamento local na maquina do cliente (Tauri)</h1>
         <p className="subtitle">Conversao e processamento feitos no navegador com WebAssembly.</p>
 
         <label className="label" htmlFor="url-input">

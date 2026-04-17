@@ -7,6 +7,9 @@ coverage/
 apps/backend/node_modules/
 apps/frontend/node_modules/
 apps/frontend/dist/
+apps/desktop/node_modules/
+apps/desktop/dist/
+apps/desktop/src-tauri/target/
 .nx/
 *.mp3
 *.mp4
